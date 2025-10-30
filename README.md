@@ -1,3 +1,426 @@
+# Dataset Preprocessing for Skyfall-GS
+
+This repository is forked from [Kai-46/SatelliteSfM](https://github.com/Kai-46/SatelliteSfM). Special thanks to Kai Zhang for the original work!
+
+This repository provides tools for preparing datasets for [Skyfall-GS](https://github.com/jayin92/Skyfall-GS) from two different sources:
+
+1. **COLMAP reconstructions** - Convert existing COLMAP sparse reconstructions
+2. **Satellite imagery** - Process satellite images with RPC camera models
+
+---
+
+## COLMAP Dataset Conversion
+
+If you already have reconstruction results from [COLMAP](https://github.com/colmap/colmap), you can convert them using the provided script.
+
+### Usage
+```bash
+python convert_colmap_datasets.py -s /path/to/colmap_output [--skip_calibration]
+```
+
+### What it does
+
+This script:
+- Reads camera data from the COLMAP sparse model located at `<dataset>/sparse/0`
+- Generates `transforms_train.json` and `transforms_test.json` in the dataset directory
+- Automatically rotates and centers cameras so that:
+  - The look-at point is at the scene origin
+  - The up vector is `(0, 0, 1)`
+
+> **✓ Dataset Ready!** After conversion, your dataset is ready for training with [Skyfall-GS](https://github.com/jayin92/Skyfall-GS). Head over to the Skyfall-GS repository to train 3DGS models on your prepared dataset.
+
+---
+
+## Satellite Imagery Processing
+
+### What is RPC (Rational Polynomial Camera) Model?
+
+The RPC (Rational Polynomial Camera) model is a standard camera model used in satellite imagery that describes the relationship between 3D world coordinates and 2D image coordinates using rational polynomial functions.
+
+#### Overview
+
+Unlike traditional pinhole camera models used in computer vision, satellite imagery requires a different approach due to:
+- **Orbital motion** - The satellite is moving during image capture
+- **Earth curvature** - Large ground coverage areas where Earth's curvature matters
+- **Atmospheric effects** - Refraction and distortion through the atmosphere
+- **Complex optics** - Push-broom sensors and other specialized imaging systems
+
+The RPC model provides a **generalized, vendor-agnostic** representation that abstracts away these complexities into a mathematical model.
+
+#### Mathematical Formulation
+
+The RPC model uses rational polynomials to map between:
+- **(Lat, Lon, Alt)** - 3D world coordinates (latitude, longitude, altitude)
+- **(Row, Col)** - 2D image pixel coordinates
+
+The transformation is expressed as:
+```
+Row = P1(X,Y,Z) / P2(X,Y,Z)
+Col = P3(X,Y,Z) / P4(X,Y,Z)
+```
+
+Where:
+- **P1, P2, P3, P4** are polynomial functions (typically cubic, with up to 20 coefficients each)
+- **X, Y, Z** are normalized 3D coordinates derived from Lat, Lon, Alt
+
+For more technical details, see the [RPC specification (GeoTIFF format)](http://geotiff.maptools.org/rpc_prop.html).
+
+---
+
+### Installation
+
+**Requirements:**
+- Linux machine with at least one GPU
+- Conda package manager
+
+**Setup:**
+```bash
+. ./env.sh
+```
+
+---
+
+### Download DFC2019 Dataset
+
+This repository processes satellite imagery in `.tif` format with RPC camera metadata, following the format used in the public benchmark: [DFC2019 Track 3: Multi-View Semantic Stereo](https://ieee-dataport.org/open-access/data-fusion-contest-2019).
+
+The dataset contains multi-view satellite imagery of two US cities:
+- **JAX** - Jacksonville, Florida
+- **OMA** - Omaha, Nebraska
+
+**Required downloads:**
+
+1. Track 3 / Training data / RGB images 1/2 (7.6 GB)
+2. Track 3 / Training data / RGB images 2/2 (7.6 GB)
+3. Track 3 / Training data / Reference (37.46 MB)
+
+**Extract the files** into the `data/` directory with the following structure:
+```
+data/
+├── Track3-RGB-1/*.tif
+├── Track3-RGB-2/*.tif
+└── Track3-Truth/[*.tif, *.txt]
+```
+
+---
+
+### Initial Preprocessing
+
+Run the preprocessing script to convert `.tif` images into the required format:
+```bash
+# Jacksonville dataset
+python preprocess_track3/preprocess_track3.py \
+    --base_view_dir data/Track3-RGB-1 \
+    --base_dsm_dir data/Track3-Truth \
+    --out_dir data/DFC2019_JAX_preprocessed
+
+# Omaha dataset
+python preprocess_track3/preprocess_track3.py \
+    --base_view_dir data/Track3-RGB-2 \
+    --base_dsm_dir data/Track3-Truth \
+    --out_dir data/DFC2019_OMA_preprocessed
+```
+
+**Output structure:**
+```
+data/DFC2019_[JAX|OMA]_preprocessed/
+├── cameras/          # Camera parameters
+├── enu_bbx/          # ENU coordinate bounding boxes
+├── enu_observers/    # Observer positions in ENU coordinates
+├── groundtruth_u/    # Ground truth data
+├── images/           # Converted PNG images
+├── latlonalt_bbx/    # Lat/Lon/Alt bounding boxes
+└── metas/            # RPC coefficients and metadata (JSON)
+```
+
+---
+
+### Prepare Scene Inputs
+
+Organize the preprocessed data by scene ID for SatelliteSfM processing.
+
+#### Usage
+```bash
+# Basic usage - organize JAX scene 004
+python prepare_input.py --scene_id 004
+
+# Organize OMA scene 068
+python prepare_input.py --scene_id 068 --city OMA
+
+# Use symlinks to save disk space
+python prepare_input.py --scene_id 004 --symlink
+```
+
+#### Advanced Options
+```bash
+# Custom paths
+python prepare_input.py --scene_id 004 \
+    --track_rgb_dir /custom/path/Track3-RGB-1 \
+    --preprocessed_dir /custom/path/DFC2019_JAX_preprocessed \
+    --output_dir /custom/output
+
+# Process OMA with Track3-RGB-2
+python prepare_input.py --scene_id 068 --city OMA \
+    --track_rgb_dir data/Track3-RGB-2
+```
+
+#### What it does
+
+This script:
+- Finds all `.tif` images matching the scene ID pattern (e.g., `JAX_004_*_RGB.tif`)
+- Copies or symlinks images to the organized structure
+- Copies the bounding box JSON file for the scene
+- Creates the following output structure:
+```
+data/DFC2019_processed/{CITY}_{SCENE_ID}/inputs/
+├── images/
+│   ├── {CITY}_{SCENE_ID}_*.tif
+│   └── ...
+└── latlonalt_bbx.json
+```
+
+---
+
+### Run SatelliteSfM
+
+Execute the SatelliteSfM pipeline to perform structure-from-motion reconstruction on the satellite imagery.
+
+#### Single Scene
+```bash
+python satellite_sfm.py \
+    --input_folder data/DFC2019_processed/JAX_004/inputs \
+    --output_folder data/DFC2019_processed/JAX_004/outputs_srtm \
+    --run_sfm \
+    --use_srtm4 \
+    --enable_debug
+```
+
+#### Parameters
+
+- `--input_folder`: Path to the prepared scene inputs
+- `--output_folder`: Path where reconstruction outputs will be saved
+- `--run_sfm`: Enable structure-from-motion reconstruction
+- `--use_srtm4`: Use SRTM4 (Shuttle Radar Topography Mission) elevation data for better initialization
+- `--enable_debug`: Enable debug mode for additional logging and visualizations
+
+#### Output Structure
+```
+data/DFC2019_processed/{CITY}_{SCENE_ID}/outputs_srtm/
+├── colmap_triangulate_postba/
+│   ├── cameras.bin
+│   ├── images.bin
+│   └── points3D.txt
+├── camera_poses/
+├── depth_maps/
+└── [other reconstruction artifacts]
+```
+
+---
+
+### Post-Processing
+
+After running SatelliteSfM, post-process the results to perform skew correction and convert to the final format.
+
+#### Usage
+```bash
+# Process specific scenes
+./postprocess_scenes.sh JAX_004 OMA_068 JAX_214
+
+# Process a single scene
+./postprocess_scenes.sh JAX_004
+
+# Mix of JAX and OMA scenes
+./postprocess_scenes.sh JAX_004 JAX_068 OMA_001 OMA_175
+
+# Use default scenes (edit the script to customize)
+./postprocess_scenes.sh
+```
+
+#### What it does
+
+For each scene, the script performs three steps:
+
+1. **Skew Correction** - Corrects geometric distortions using SRTM elevation data
+```bash
+   python skew_correct.py \
+       --input_folder data/DFC2019_processed/{SCENE}/outputs_srtm \
+       --output_folder data/DFC2019_processed/{SCENE}/outputs_skew
+```
+
+2. **Dataset Conversion** - Converts to the final format required by Skyfall-GS
+```bash
+   python convert_datasets.py \
+       --input_folder data/DFC2019_processed/{SCENE}/outputs_skew
+```
+
+3. **Copy 3D Points** - Copies the reconstructed 3D point cloud
+```bash
+   cp data/DFC2019_processed/{SCENE}/outputs_srtm/colmap_triangulate_postba/points3D.txt \
+      data/DFC2019_processed/{SCENE}/outputs_skew/
+```
+
+#### Advanced Options
+```bash
+# Skip specific steps
+./postprocess_scenes.sh --skip-skew JAX_004      # Skip skew correction
+./postprocess_scenes.sh --skip-convert JAX_004   # Skip dataset conversion
+./postprocess_scenes.sh --skip-copy JAX_004      # Skip points3D.txt copy
+
+# Dry run (see what would be executed without running)
+./postprocess_scenes.sh --dry-run JAX_004
+
+# Use custom base directory
+./postprocess_scenes.sh --base-dir /custom/path JAX_004
+
+# Get help
+./postprocess_scenes.sh --help
+```
+
+Make the script executable:
+```bash
+chmod +x postprocess_scenes.sh
+```
+
+#### Final Output Structure
+```
+data/DFC2019_processed/{CITY}_{SCENE_ID}/outputs_skew/
+├── transforms_train.json    # Training camera transforms
+├── transforms_test.json     # Testing camera transforms
+├── points3D.txt            # 3D point cloud
+└── [corrected reconstruction data]
+```
+
+---
+
+## Complete Workflow Example
+
+Here's a complete example processing JAX scene 004 from start to finish:
+```bash
+# 1. Download and extract DFC2019 dataset (manual step)
+#    Place files in data/Track3-RGB-1, data/Track3-RGB-2, data/Track3-Truth
+
+# 2. Initial preprocessing
+python preprocess_track3/preprocess_track3.py \
+    --base_view_dir data/Track3-RGB-1 \
+    --base_dsm_dir data/Track3-Truth \
+    --out_dir data/DFC2019_JAX_preprocessed
+
+# 3. Prepare scene inputs
+python prepare_input.py --scene_id 004 --city JAX
+
+# 4. Run SatelliteSfM reconstruction
+python satellite_sfm.py \
+    --input_folder data/DFC2019_processed/JAX_004/inputs \
+    --output_folder data/DFC2019_processed/JAX_004/outputs_srtm \
+    --run_sfm \
+    --use_srtm4 \
+    --enable_debug
+
+# 5. Post-process results
+./postprocess_scenes.sh JAX_004
+
+# 6. Final outputs ready for Skyfall-GS training
+ls data/DFC2019_processed/JAX_004/outputs_skew/
+```
+
+---
+
+## Batch Processing Multiple Scenes
+
+Process multiple scenes efficiently:
+```bash
+# Define scenes to process
+scenes=(JAX_004 JAX_068 JAX_214 OMA_001 OMA_175)
+
+# Step 1: Prepare all scene inputs
+for scene in "${scenes[@]}"; do
+    city=$(echo $scene | cut -d'_' -f1)
+    scene_id=$(echo $scene | cut -d'_' -f2)
+    
+    python prepare_input.py --scene_id $scene_id --city $city --symlink
+done
+
+# Step 2: Run SatelliteSfM for all scenes
+for scene in "${scenes[@]}"; do
+    python satellite_sfm.py \
+        --input_folder data/DFC2019_processed/${scene}/inputs \
+        --output_folder data/DFC2019_processed/${scene}/outputs_srtm \
+        --run_sfm \
+        --use_srtm4 \
+        --enable_debug
+done
+
+# Step 3: Post-process all scenes at once
+./postprocess_scenes.sh "${scenes[@]}"
+```
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+**Issue: "No images found matching pattern"**
+- Check that the scene ID format is correct (e.g., "004" not "4")
+- Verify that `.tif` files exist in the Track3-RGB directory
+- Ensure preprocessing was run successfully
+
+**Issue: "Input folder does not exist"**
+- Make sure you've run `prepare_input.py` before `satellite_sfm.py`
+- Check that the scene ID and city code are correct
+
+**Issue: SatelliteSfM fails with SRTM errors**
+- Ensure you have internet connectivity (SRTM data is downloaded automatically)
+- Try running without `--use_srtm4` flag as a fallback
+
+**Issue: Post-processing script fails**
+- Make sure the script is executable: `chmod +x postprocess_scenes.sh`
+- Verify that SatelliteSfM completed successfully
+- Check that all required Python dependencies are installed
+
+---
+
+## Citation
+
+If you use this preprocessing pipeline, please cite the original SatelliteSfM work, COLMAP, the DFC2019 dataset and our work.
+
+```
+@inproceedings{VisSat-2019,
+  title={Leveraging Vision Reconstruction Pipelines for Satellite Imagery},
+  author={Zhang, Kai and Sun, Jin and Snavely, Noah},
+  booktitle={IEEE International Conference on Computer Vision Workshops},
+  year={2019}
+}
+
+@inproceedings{schoenberger2016sfm,
+  author={Sch\"{o}nberger, Johannes Lutz and Frahm, Jan-Michael},
+  title={Structure-from-Motion Revisited},
+  booktitle={Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year={2016},
+}
+
+@data{c6tm-vw12-19,
+  doi = {10.21227/c6tm-vw12},
+  url = {https://dx.doi.org/10.21227/c6tm-vw12},
+  author = {Le Saux, Bertrand and Yokoya, Naoto and Hänsch, Ronny and Brown, Myron},
+  publisher = {IEEE Dataport},
+  title = {Data Fusion Contest 2019 ({DFC2019})},
+  year = {2019},
+}
+
+@article{lee2025SkyfallGS,
+  title = {{Skyfall-GS}: Synthesizing Immersive {3D} Urban Scenes from Satellite Imagery},
+  author = {Jie-Ying Lee and Yi-Ruei Liu and Shr-Ruei Tsai and Wei-Cheng Chang and Chung-Ho Wu and Jiewen Chan and Zhenjun Zhao and Chieh Hubert Lin and Yu-Lun Liu},
+  journal = {arXiv preprint},
+  year = {2025},
+  eprint = {2510.15869},
+  archivePrefix = {arXiv}
+}
+```
+
+> Below is the original README
+---
+
 # Satellite Structure from Motion
 
 Maintained by [Kai Zhang](https://kai-46.github.io/website/).

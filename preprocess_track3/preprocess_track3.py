@@ -14,6 +14,7 @@ import pyexr
 import utm
 import multiprocessing
 import imageio
+import argparse
 
 
 from preprocess.rpc_model import RPCModel
@@ -204,23 +205,28 @@ def multiple_workers(out_dir, dsm_tif_fpath_list, view_tif_fpath_list, max_proce
 
 
 if __name__ == '__main__':
-    # dsm_tif_fpath = '/phoenix/S7/IARPA-SMART/delivery/train_mvs/Track3-Truth/JAX_004_DSM.tif'
-    # view_tif_fpath = '/phoenix/S7/IARPA-SMART/delivery/train_mvs/Track3-Train/JAX_004_006_RGB.tif'
-    # out_dir = '/phoenix/S7/kz298/dfc2019_preprocessed'
-    # single_worker(out_dir, dsm_tif_fpath, view_tif_fpath)
+    parser = argparse.ArgumentParser(
+        description='Preprocess Track3 tiles: project DSM to view grid and export images, metas, cameras and DSMs.')
+    parser.add_argument('--base_view_dir', '-v', required=True,
+                        help='Directory containing view TIFFs (e.g. Track3-RGB-1)')
+    parser.add_argument('--base_dsm_dir', '-d', required=True,
+                        help='Directory containing DSM TIFFs (e.g. Track3-Truth)')
+    parser.add_argument('--out_dir', '-o', required=True,
+                        help='Output directory for preprocessed tiles')
+    args = parser.parse_args()
 
-    base_view_dir = '/phoenix/S7/IARPA-SMART/delivery/train_mvs/Track3-Train'
-    base_dsm_dir = '/phoenix/S7/IARPA-SMART/delivery/train_mvs/Track3-Truth'
-    out_dir = '/phoenix/S7/kz298/dfc2019_preprocessed'
+    base_view_dir = args.base_view_dir
+    base_dsm_dir = args.base_dsm_dir
+    out_dir = args.out_dir
+
     views = [x for x in os.listdir(base_view_dir) if x.endswith('.tif')]
-    dsms = [x[:7]+'_DSM.tif' for x in views]
+    dsms = [x[:7] + '_DSM.tif' for x in views]
 
     dsm_tif_fpath_list = [os.path.join(base_dsm_dir, x) for x in dsms]
     view_tif_fpath_list = [os.path.join(base_view_dir, x) for x in views]
     ic(len(dsm_tif_fpath_list), len(view_tif_fpath_list))
     ic(dsm_tif_fpath_list[:5])
     ic(view_tif_fpath_list[:5])
-    # exit(0)
     for x in dsm_tif_fpath_list:
         assert(os.path.isfile(x)),f'{x}'
     for x in view_tif_fpath_list:

@@ -110,8 +110,12 @@ def _read_camera_dict(colmap_cameras, colmap_images):
 
         # w, h, fx, fy, cx, cy, s, qvec, tvec
         # camera_dict[img_name] = img_size + params + qvec + tvec
-
-        fx, fy, cx, cy, s = params
+        if len(params) == 4:
+            fx, fy, cx, cy = params
+            s = 0
+        else:
+            fx, fy, cx, cy, s = params
+        
         K = np.eye(4)
         K[0, 0] = fx
         K[0, 1] = s

@@ -1,5 +1,16 @@
 examples/
 
+data/
+outputs/
+tmp*
+*.zip
+
+skew_correct_depth.py
+prepare_iterative_datasets.py
+normalize_colmap.py
+merge_cam_json.py
+
+
 preprocess_sfm/ColmapForVisSat
 
 # Byte-compiled / optimized / DLL files

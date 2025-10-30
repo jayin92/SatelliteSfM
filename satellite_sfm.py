@@ -24,7 +24,7 @@ if __name__ == '__main__':
         altitude = srtm4.srtm4(np.mean(latlonalt_bbx['lon_minmax']),
                            np.mean(latlonalt_bbx['lat_minmax']))
         latlonalt_bbx['alt_minmax'] = [altitude - 10, 300]
-        ic('altitude range from SRTM4: ', latlonalt['alt_minmax'])
+        ic('altitude range from SRTM4: ', latlonalt_bbx['alt_minmax'])
 
     preprocess_image_set(args.output_folder, os.path.join(args.input_folder, 'images'),
                          latlonalt_bbx['lat_minmax'], latlonalt_bbx['lon_minmax'], latlonalt_bbx['alt_minmax'],
