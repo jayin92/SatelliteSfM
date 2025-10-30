@@ -216,10 +216,9 @@ data/DFC2019_processed/{CITY}_{SCENE_ID}/outputs_srtm/
 ```
 
 ---
-
 ### Post-Processing
 
-After running SatelliteSfM, post-process the results to perform skew correction and convert to the final format.
+After running SatelliteSfM, post-process the results to perform skew correction, convert to the final format, and generate masks for valid pixels.
 
 #### Usage
 ```bash
@@ -238,7 +237,7 @@ After running SatelliteSfM, post-process the results to perform skew correction 
 
 #### What it does
 
-For each scene, the script performs three steps:
+For each scene, the script performs four steps:
 
 1. **Skew Correction** - Corrects geometric distortions using SRTM elevation data
 ```bash
@@ -259,12 +258,20 @@ For each scene, the script performs three steps:
       data/DFC2019_processed/{SCENE}/outputs_skew/
 ```
 
+4. **Generate Masks** - Creates binary masks for valid (non-black) pixels
+```bash
+   python generate_masks.py \
+       --input_dir data/DFC2019_processed/{SCENE}/outputs_skew/images \
+       --output_dir data/DFC2019_processed/{SCENE}/outputs_skew/masks
+```
+
 #### Advanced Options
 ```bash
 # Skip specific steps
 ./postprocess_scenes.sh --skip-skew JAX_004      # Skip skew correction
 ./postprocess_scenes.sh --skip-convert JAX_004   # Skip dataset conversion
 ./postprocess_scenes.sh --skip-copy JAX_004      # Skip points3D.txt copy
+./postprocess_scenes.sh --skip-mask JAX_004      # Skip mask generation
 
 # Dry run (see what would be executed without running)
 ./postprocess_scenes.sh --dry-run JAX_004
@@ -284,10 +291,17 @@ chmod +x postprocess_scenes.sh
 #### Final Output Structure
 ```
 data/DFC2019_processed/{CITY}_{SCENE_ID}/outputs_skew/
+├── cameras/                 # Camera parameters
+├── images/                  # Converted PNG images
+│   ├── *.png
+│   └── ...
+├── masks/                   # Binary masks for valid pixels
+│   ├── *.npy               # NumPy format (for processing)
+│   ├── *.png               # PNG format (for visualization)
+│   └── ...
 ├── transforms_train.json    # Training camera transforms
 ├── transforms_test.json     # Testing camera transforms
-├── points3D.txt            # 3D point cloud
-└── [corrected reconstruction data]
+└── points3D.txt            # 3D point cloud
 ```
 
 ---

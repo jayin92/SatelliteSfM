@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # This script post-processes the datasets for specified scenes
-# It performs skew correction using SRTM data and converts the datasets into the desired format.
+# It performs skew correction using SRTM data, converts the datasets into the desired format,
+# and generates masks for non-black pixels.
 
 set -e  # Exit on error (optional, remove if you want to continue on errors)
 
@@ -19,6 +20,7 @@ default_scenes=(JAX_004 JAX_068 JAX_214 JAX_260 JAX_164 JAX_168 JAX_175 JAX_264)
 SKIP_SKEW=false
 SKIP_CONVERT=false
 SKIP_COPY=false
+SKIP_MASK=false
 DRY_RUN=false
 
 usage() {
@@ -28,6 +30,7 @@ usage() {
     echo "  --skip-skew       Skip skew correction step"
     echo "  --skip-convert    Skip dataset conversion step"
     echo "  --skip-copy       Skip points3D.txt copy step"
+    echo "  --skip-mask       Skip mask generation step"
     echo "  --dry-run         Print commands without executing them"
     echo "  --base-dir DIR    Set base directory (default: data/DFC2019_processed)"
     echo "  -h, --help        Show this help message"
@@ -55,6 +58,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-copy)
             SKIP_COPY=true
+            shift
+            ;;
+        --skip-mask)
+            SKIP_MASK=true
             shift
             ;;
         --dry-run)
@@ -125,6 +132,8 @@ for scene in "${scenes[@]}"; do
     output_folder="${BASE_DIR}/${scene}/outputs_skew"
     points3d_src="${BASE_DIR}/${scene}/outputs_srtm/colmap_triangulate_postba/points3D.txt"
     points3d_dst="${BASE_DIR}/${scene}/outputs_skew/points3D.txt"
+    images_dir="${BASE_DIR}/${scene}/outputs_skew/images"
+    masks_dir="${BASE_DIR}/${scene}/outputs_skew/masks"
     
     # Check if input folder exists
     if [ ! -d "$input_folder" ]; then
@@ -177,6 +186,25 @@ for scene in "${scenes[@]}"; do
         fi
     elif [ "$SKIP_COPY" = true ]; then
         echo -e "${YELLOW}Step 3: Skipping points3D.txt copy${NC}"
+    fi
+    
+    # Step 4: Generate masks
+    if [ "$scene_success" = true ] && [ "$SKIP_MASK" = false ]; then
+        echo ""
+        echo "Step 4: Generating masks for non-black pixels..."
+        if [ -d "$images_dir" ]; then
+            if ! run_cmd python generate_masks.py \
+                --input_dir "$images_dir" \
+                --output_dir "$masks_dir"; then
+                echo -e "${RED}Error: generate_masks.py failed for scene ${scene}${NC}"
+                scene_success=false
+            fi
+        else
+            echo -e "${YELLOW}Warning: Images directory not found: $images_dir${NC}"
+            echo "Skipping mask generation"
+        fi
+    elif [ "$SKIP_MASK" = true ]; then
+        echo -e "${YELLOW}Step 4: Skipping mask generation${NC}"
     fi
     
     # Update counters
